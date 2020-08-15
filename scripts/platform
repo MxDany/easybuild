@@ -1,0 +1,211 @@
+# Platform environment variable configuration.
+# Add your custom platform in here.
+# -------------------
+
+# All supported platforms.
+PLAT_LIST="local Dev generic android-ndk-r21 mingw32"
+# Set default platform, but if it is empty, you must specify it manually.
+PLATFORM="local"
+get_devlist() {
+    case "$PLATFORM" in
+    local)
+        # All supported Device/Arch.
+        DEV_LIST="$(gcc -dumpmachine | sed -rn "s/([^-]*).*/\1/p")"
+        # Set default Device/Arch, but if it is empty, you must specify it manually.
+        test -z "$DEV_ARCH" && DEV_ARCH="$(echo $DEV_LIST | awk '{print $1}')"
+        ;;
+    generic)
+        # All supported Device/Arch.
+        DEV_LIST="armv2 armv5te"
+        # Set default Device/Arch, but if it is empty, you must specify it manually.
+        # test -z "$DEV_ARCH" && DEV_ARCH="$(echo $DEV_LIST | awk '{print $1}')"
+        ;;
+    mingw32)
+        # All supported Device/Arch.
+        DEV_LIST="x86 x86_64"
+        # Set default Device/Arch, but if it is empty, you must specify it manually.
+        # test -z "$DEV_ARCH" && DEV_ARCH="$(echo $DEV_LIST | awk '{print $1}')"
+        ;;
+    Dev)
+        # All supported Device/Arch.
+        DEV_LIST="Dev01 Dev02 Dev03 Dev04 Dev05"
+        # Set default Device/Arch, but if it is empty, you must specify it manually.
+        # test -z "$DEV_ARCH" && DEV_ARCH="$(echo $DEV_LIST | awk '{print $1}')"
+        ;;
+    android-ndk-r21)
+        # All supported Device/Arch.
+        DEV_LIST="armeabi-v7a arm64-v8a x86 x86_64"
+        # Set default Device/Arch, but if it is empty, you must specify it manually.
+        # test -z "$DEV_ARCH" && DEV_ARCH="$(echo $DEV_LIST | awk '{print $1}')"
+        ;;
+    esac
+    return 0
+}
+# Set platform-related environment variables.
+parse_platform() {
+    case "$PLATFORM" in
+    local)
+        BUILD_OS="linux"
+        BUILD_CROSS=false
+        CC_TYPE="gcc"
+        BUILD_ARCH="$DEV_ARCH"
+        BUILD_HOST=""
+        BUILD_PREFIX=""
+        AR="ar"
+        AS="as"
+        CC="gcc"
+        CXX="g++"
+        CPP="$CC -E"
+        LD="ld"
+        RANLIB="ranlib"
+        STRIP="strip"
+        BUILD_SYSROOT=$(cd $($CC -print-sysroot) && pwd)
+        ;;
+    generic)
+        BUILD_OS="linux"
+        BUILD_CROSS=true
+        CC_TYPE="gcc"
+        case "$DEV_ARCH" in
+        armv2 | armv5te)
+            BUILD_ARCH="arm"
+            BUILD_HOST="arm-linux-gnueabihf"
+            ;;
+        esac
+        BUILD_PREFIX="${BUILD_HOST}-"
+        AR="${BUILD_HOST}-ar"
+        AS="${BUILD_HOST}-as"
+        CC="${BUILD_HOST}-gcc"
+        CXX="${BUILD_HOST}-g++"
+        CPP="$CC -E"
+        LD="${BUILD_HOST}-ld"
+        RANLIB="${BUILD_HOST}-ranlib"
+        STRIP="${BUILD_HOST}-strip"
+        BUILD_SYSROOT=$(cd $($CC -print-sysroot) && pwd)
+        ;;
+    mingw32)
+        BUILD_OS="linux"
+        BUILD_CROSS=true
+        CC_TYPE="gcc"
+        THREAD_MODEL="posix"
+        case "$DEV_ARCH" in
+        x86)
+            BUILD_ARCH="x86"
+            BUILD_CPU="i686"
+            BUILD_HOST="i686-w64-mingw32"
+            ;;
+        x86_64)
+            BUILD_ARCH="x86_64"
+            BUILD_CPU="x86_64"
+            BUILD_HOST="x86_64-w64-mingw32"
+            ;;
+        esac
+        BUILD_PREFIX="${BUILD_HOST}-"
+
+        AR="${BUILD_HOST}-ar"
+        AS="${BUILD_HOST}-as"
+        CC="${BUILD_HOST}-gcc-$THREAD_MODEL"
+        CXX="${BUILD_HOST}-g++-$THREAD_MODEL"
+        CPP="$CC -E"
+        LD="${BUILD_HOST}-ld"
+        RANLIB="${BUILD_HOST}-ranlib"
+        STRIP="${BUILD_HOST}-strip"
+        BUILD_SYSROOT=$(cd $($CC -print-sysroot) && pwd)
+        ;;
+    Dev)
+        BUILD_OS="linux"
+        BUILD_CROSS=true
+        CC_TYPE="gcc"
+        case "$DEV_ARCH" in
+        Dev01)
+            BUILD_ARCH="arm"
+            BUILD_HOST="arm-hisiv510-linux"
+            ;;
+        Dev02)
+            BUILD_ARCH="aarch64"
+            BUILD_HOST="aarch64-marvell-linux-gnu"
+            ;;
+        Dev03)
+            BUILD_ARCH="arm"
+            BUILD_HOST="arm-hisiv500-linux"
+            ;;
+        Dev04)
+            BUILD_ARCH="arm"
+            BUILD_HOST="arm-openwrt-linux"
+            ;;
+        Dev05)
+            BUILD_ARCH="aarch64"
+            BUILD_HOST="aarch64-openwrt-linux"
+            ;;
+        esac
+        BUILD_PREFIX="${BUILD_HOST}-"
+        AR="${BUILD_HOST}-ar"
+        AS="${BUILD_HOST}-as"
+        CC="${BUILD_HOST}-gcc"
+        CXX="${BUILD_HOST}-g++"
+        CPP="$CC -E"
+        LD="${BUILD_HOST}-ld"
+        RANLIB="${BUILD_HOST}-ranlib"
+        STRIP="${BUILD_HOST}-strip"
+        case "$DEV_ARCH" in
+        Dev04 | Dev05) BUILD_SYSROOT=$(cd $(dirname $(which $CC))/../ && pwd) ;;
+        *) BUILD_SYSROOT=$(cd $($CC -print-sysroot) && pwd) ;; esac
+        ;;
+    android-ndk-r21)
+        echo_w "===== Set Android API to $ANDROID_API ====="
+        BUILD_OS="android"
+        BUILD_CROSS=true
+        CC_TYPE="clang"
+        case "$DEV_ARCH" in
+        armeabi-v7a)
+            test -z "$ANDROID_API" && ANDROID_API=16
+            BUILD_ARCH="arm"
+            BUILD_CPU="armv7-a"
+            BUILD_HOST="armv7a-linux-androideabi"
+            ;;
+        arm64-v8a)
+            test -z "$ANDROID_API" && ANDROID_API=21
+            BUILD_ARCH="arm64"
+            BUILD_CPU="armv8-a"
+            BUILD_HOST="aarch64-linux-android"
+            ;;
+        x86)
+            test -z "$ANDROID_API" && ANDROID_API=16
+            BUILD_ARCH="x86"
+            BUILD_CPU="i686"
+            BUILD_HOST="i686-linux-android"
+            ;;
+        x86_64)
+            test -z "$ANDROID_API" && ANDROID_API=21
+            BUILD_ARCH="x86_64"
+            BUILD_CPU="x86_64"
+            BUILD_HOST="x86_64-linux-android"
+            ;;
+        esac
+        BUILD_PREFIX="${BUILD_HOST}-"
+        AR="${BUILD_HOST}-ar"
+        AS="${BUILD_HOST}-as"
+        CC="${BUILD_HOST}${ANDROID_API}-clang"
+        CXX="${BUILD_HOST}${ANDROID_API}-clang++"
+        CPP="$CC -E"
+        LD="${BUILD_HOST}-ld"
+        RANLIB="${BUILD_HOST}-ranlib"
+        STRIP="${BUILD_HOST}-strip"
+        case "$DEV_ARCH" in
+        armeabi-v7a)
+            BUILD_PREFIX="arm-linux-androideabi-"
+            AR="arm-linux-androideabi-ar"
+            AS="arm-linux-androideabi-as"
+            LD="arm-linux-androideabi-ld"
+            RANLIB="arm-linux-androideabi-ranlib"
+            STRIP="arm-linux-androideabi-strip"
+            ;;
+        esac
+        test -n "$NDK" && {
+            test -f "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/$CC" ||
+                usage 1 "The compiler <$CC> can not be found, Please check if the NDK environment variable is set incorrectly."
+            which $CC >/dev/null || export PATH=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+        } || usage 1 "Please Set <$PLATFORM> Environment Variable 'NDK'."
+        BUILD_SYSROOT="$NDK/platforms/android-${ANDROID_API}/arch-${BUILD_ARCH}"
+        ;;
+    esac
+}

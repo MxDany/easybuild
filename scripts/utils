@@ -1,0 +1,458 @@
+. $(dirname ${BASH_SOURCE[0]})/colors   # colorful echo.
+. $(dirname ${BASH_SOURCE[0]})/platform # Platform related configuration.
+# General decompression function.
+# $1: [out]the name of the output variable.
+# $2: [in]The path name of the compressed package file.
+# $3: [in]Decompress the source code storage path.
+unzip_tarball() {
+    local varname=$1                     # Name of output variable.
+    local tarball_file="$2"              # Compressed file path.
+    local save_path="$3"                 # storage path of the unzip files.
+    local tmp_dir="/tmp/.libs_unzip_tmp" # Cache directory.
+    local dest_root=""                   # Folder root directory after decompression.
+    echo_m "Start to unzip $(basename $tarball_file)..."
+    test $# != 3 && fatal "unzip_tarball function use error."
+    test ! -f "$tarball_file" && fatal "$tarball_file not exist"
+    local tarball_ext
+    read tarball_name tarball_ext <<<$(echo $tarball_file | sed -rn "s/^(.+)($TARBALL_REGEX)$/\1 \2/p")
+    tarball_name=$(basename $tarball_name)
+    test -z "$tarball_name" && fatal "[$tarball_file] Unrecognized compressed file name prefix."
+    test -z "$tarball_ext" && fatal "[$tarball_file] Unrecognized compressed file extension."
+
+    rm -fr $tmp_dir && mkdir -p $tmp_dir
+    case "$tarball_ext" in
+    .tar | .tar.gz | .tar.xz | .tar.bz2 | .tar.lz | .tar.7z)
+        tar -xf $tarball_file -C $tmp_dir
+        ;;
+    .zip)
+        unzip -q $tarball_file -d $tmp_dir
+        ;;
+    .rar) unrar x $tarball_file $tmp_dir ;;
+    .7z) ;& # fallthrough(Since bash 4.0)
+    *) fatal "[$tarball_file] Unsupported compressed file format." ;;
+    esac
+    local extract_name
+    mkdir -p $save_path
+    local file_cnt=$(ls -A $tmp_dir | wc -w)
+    if [ $file_cnt -eq 1 ]; then
+        extract_name=$(ls -A $tmp_dir)
+        test -f $tmp_dir/$extract_name && {
+            mkdir -p $tmp_dir/$tarball_name
+            mv $tmp_dir/$extract_name $tmp_dir/$tarball_name
+            extract_name=$tarball_name
+        }
+        test -d $tmp_dir/$extract_name || fatal "it's not a dir."
+        rm -fr $save_path/$extract_name
+        mv $tmp_dir/$extract_name $save_path
+    elif [ $file_cnt -gt 1 ]; then
+        extract_name=$tarball_name
+        rm -fr $save_path/$extract_name
+        mkdir -p $save_path/$extract_name && mv $tmp_dir/* $save_path/$extract_name
+    else
+        fatal "Unable to find the unzipped file."
+    fi
+    rm -fr $tmp_dir
+
+    dest_root=$(cd $save_path/$extract_name && pwd)
+    eval "$varname=\"$dest_root\""
+    echo_m "Unzip OK: [${tarball_file##$PROJ_ROOT/}] -> [${dest_root##$PROJ_ROOT/}]."
+}
+guess_tarball_version() { echo $(basename $* | sed -rn "s/^[^0-9]*([0-9]+(\.[0-9]+)*[A-Za-z]?).*${TARBALL_REGEX}$/\1/p"); }
+vergt() { test "$(echo -e "$1\n$2" | sort -V | head -n1)" != "$1"; }
+verle() { test "$(echo -e "$1\n$2" | sort -V | head -n1)" = "$1"; }
+verlt() { test "$(echo -e "$1\n$2" | sort -rV | head -n1)" != "$1"; }
+verge() { test "$(echo -e "$1\n$2" | sort -rV | head -n1)" = "$1"; }
+set_export_vars() {
+    unset_export_vars
+    ARFLAGS="$ARFLAGS"
+    ASFLAGS="$ASFLAGS"
+    CFLAGS="$CFLAGS"
+    CXXFLAGS="$CXXFLAGS"
+    CPPFLAGS="$CPPFLAGS"
+    LDFLAGS="$LDFLAGS"
+    LDLIBS="$LDLIBS"
+
+    BUILD_CROSS=false
+    parse_platform
+    which $CC >/dev/null || fatal "Compiler not found: $CC"
+
+    CPPFLAGS="$CPPFLAGS -I$INSTALL_DIR/include"
+    LDFLAGS="$LDFLAGS -L$INSTALL_DIR/lib"
+    test -n "$AR" && export AR
+    test -n "$AS" && export AS
+    test -n "$CC" && export CC
+    test -n "$CXX" && export CXX
+    test -n "$CPP" && export CPP
+    test -n "$LD" && export LD
+    test -n "$RANLIB" && export RANLIB
+    test -n "$STRIP" && export STRIP
+
+    test -n "$ARFLAGS" && export ARFLAGS
+    test -n "$ASFLAGS" && export ASFLAGS
+    test -n "$CFLAGS" && export CFLAGS
+    test -n "$CXXFLAGS" && export CXXFLAGS
+    test -n "$CPPFLAGS" && export CPPFLAGS
+    test -n "$LDFLAGS" && export LDFLAGS
+    test -n "$LDLIBS" && export LDLIBS
+
+    export PKG_CONFIG="pkg-config"
+    export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig"
+}
+unset_export_vars() {
+    unset AR
+    unset AS
+    unset CC
+    unset CXX
+    unset CPP
+    unset LD
+    unset RANLIB
+    unset STRIP
+
+    unset ARFLAGS
+    unset ASFLAGS
+    unset CFLAGS
+    unset CXXFLAGS
+    unset CPPFLAGS
+    unset LDFLAGS
+    unset LDLIBS
+
+    unset PKG_CONFIG
+    unset PKG_CONFIG_PATH
+}
+# 打印环境变量
+show_env() {
+    echo_w "Compiler's target processor: $(gcc -dumpmachine)"
+    echo_m "AR=$AR"
+    echo_m "AS=$AS"
+    echo_m "CC=$CC"
+    echo_m "CXX=$CXX"
+    echo_m "CPP=$CPP"
+    echo_m "LD=$LD"
+    echo_m "RANLIB=$RANLIB"
+    echo_m "STRIP=$STRIP"
+
+    echo_m "ARFLAGS=$ARFLAGS"
+    echo_m "ASFLAGS=$ASFLAGS"
+    echo_m "CFLAGS=$CFLAGS"
+    echo_m "CXXFLAGS=$CXXFLAGS"
+    echo_m "CPPFLAGS=$CPPFLAGS"
+    echo_m "LDFLAGS=$LDFLAGS"
+    echo_m "LDLIBS=$LDLIBS"
+
+    echo_m "PKG_CONFIG=$PKG_CONFIG"
+    echo_m "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+
+    echo_m "BUILD_OS=$BUILD_OS"
+    echo_m "BUILD_ARCH=$BUILD_ARCH"
+    echo_m "BUILD_CPU=$BUILD_CPU"
+    echo_m "BUILD_HOST=$BUILD_HOST"
+    echo_m "BUILD_PREFIX=$BUILD_PREFIX"
+    echo_m "BUILD_SYSROOT=$BUILD_SYSROOT"
+}
+exec_echo() {
+    local command="$*"
+    echo_t "Start to configure..."
+    show_env
+    echo_w $command
+    mkdir -p $INSTALL_DIR
+    $JUST_TEST || {
+        eval "$command" || fatal "Command Execution Failed: [$command]."
+    }
+    echo "$(basename $src):" >>$INSTALL_DIR/$CONFIG_FILE
+    # strip color text
+    show_env | sed -r "s:\x1B\[[0-9;]*[mK]::g" >>$INSTALL_DIR/$CONFIG_FILE
+    echo "$command" >>$INSTALL_DIR/$CONFIG_FILE
+    echo "" >>$INSTALL_DIR/$CONFIG_FILE
+}
+
+proj_build() {
+    local name=""
+    for name in $@; do
+        local force_flag=""
+        local temp_flag="$MODE_FLAG"
+        case $name in
+        *-static) force_flag="static" ;;
+        *-share) force_flag="share" ;;
+        *-both) force_flag="both" ;; esac
+        test -n "$force_flag" && name=${name%-${force_flag}}
+        echo_t "Start to ${ACTION^} <$name>($BUILD_NAME)"
+        test -n "$force_flag" && echo_w "Force to ${ACTION^} '$force_flag' libs for [$name]."
+        local src=$(eval "echo \$${name}_src")
+        test -z "$src" && fatal "tarball file variable '${name}_src' is not defined"
+        test -f "$src" || fatal "tarball file [$src] is not exist"
+        test "$ACTION" = "clone" && {
+            new_path=$(dirname ${src/$PROJ_ROOT/$CLONE_PATH})
+            mkdir -p $new_path
+            cp $src $new_path
+            continue
+        }
+        if [ -d "$src" ]; then
+            cp $src $SOURCE_DIR
+            eval "${name}_source=\"$(cd $SOURCE_DIR/$(basename $src) && pwd)\""
+        elif [ -f "$src" ]; then
+            unzip_tarball ${name}_source $src $SOURCE_DIR
+        else
+            fatal "The source code file is specified incorrectly, only the compressed package or folder."
+        fi
+        local source=$(eval "echo \$${name}_source")
+        test -z "$source" && fatal "Unable to locate source path."
+        cd $source
+        test -n "$force_flag" && MODE_FLAG=$force_flag # change MODE_FLAG
+        set_export_vars
+        local config_opts=()
+        local config_help=$(dirname $SOURCE_DIR)/$(basename $source)-help.txt
+        rm -f $config_help
+        test -f "./configure" && echo -e "\n./configure: \n" >>$config_help &&
+            ./configure --help >>$config_help 2>&1 || :
+        test -f "CMakeLists.txt" && echo -e "\nCMakeLists.txt: \n" >>$config_help &&
+            mkdir _build && cd _build && cmake ../ -L >>$config_help 2>&1 && cd .. && rm -fr _build || :
+        proj_build_handler
+        unset_export_vars
+        test -n "$force_flag" && MODE_FLAG=$temp_flag # restore MODE_FLAG
+        cd $PROJ_ROOT
+        echo_s "${ACTION^} <$name>($BUILD_NAME) Successful"
+    done
+    echo_s "Run ${ACTION^} <$(basename "$BUILD_NAME")> Successful"
+}
+# strip命令裁剪动态库文件
+# 参数1：动态库路径
+strip_so() {
+    set_export_vars
+    test -z "$STRIP" && STRIP=strip
+    if [ -d $1 ]; then
+        for file in $(ls $1/lib*.so*); do
+            chmod a+w $file
+            if [[ -f $file && ! -L $file ]]; then
+                echo_m "Strip File: [$file]."
+                $STRIP $file
+            fi
+        done
+    elif [ -e $1 ]; then
+        $STRIP $1
+    fi
+    unset_export_vars
+}
+# 针对不同的库，会有不同的打包方法
+proj_pack_hanlder() {
+    local src_dir=$1
+    local dst_dir=$2
+    if [ $(ls $src_dir/lib/lib*.so* 2>/dev/null | wc -l) -ne 0 ]; then
+        mkdir -p $dst_dir/lib
+        cp -d $src_dir/lib/lib*.so* $dst_dir/lib
+        strip_so $dst_dir/lib
+    fi
+    if [ $(ls $src_dir/lib/lib*.a 2>/dev/null | wc -l) -ne 0 ]; then
+        mkdir -p $dst_dir/lib
+        cp -d $src_dir/lib/lib*.a $dst_dir/lib
+    fi
+    if [ -d "$src_dir/include" ]; then
+        cp -rd $src_dir/include $dst_dir
+    fi
+    if [ -d "$src_dir/bin" ]; then
+        cp -rd $src_dir/bin $dst_dir
+    fi
+    if [ -d "$src_dir/sbin" ]; then
+        cp -rd $src_dir/sbin $dst_dir
+    fi
+}
+# 自定义打包
+# 参数1：源路径
+# 参数2：目标路径
+proj_pack() {
+    $JUST_TEST && return 0
+    test "$ACTION" = "clone" && {
+        tar -zcf $CLONE_PATH.tar.gz -C $(dirname $CLONE_PATH) $(basename $CLONE_PATH)
+        rm -fr $CLONE_PATH
+        return 0
+    }
+    local src_dir="$INSTALL_DIR"
+    local dst_dir="$PACK_DIR"
+    rm -fr $dst_dir && mkdir -p $dst_dir
+    proj_pack_hanlder $src_dir $dst_dir
+    test -f "$src_dir/$CONFIG_FILE" && cp $src_dir/$CONFIG_FILE $dst_dir
+    rm -f $dst_dir.tar.gz
+    tar -zcf $dst_dir.tar.gz -C $(dirname $dst_dir) $(basename $dst_dir)
+    rm -fr $dst_dir
+    echo_s "Pack $(basename $SOURCE_DIR) Successful"
+}
+check_list() {
+    for var in $1; do
+        test "$2" = "$var" && return 0
+    done
+    return 1
+}
+
+usage() {
+    local exitval="$1"
+    local errmsg="$2"
+    cat <<EOF
+Usage:
+    Universal multi-platform quick compile tools. Run make_template.sh to quickly create your own compile script.
+
+    -m,--share-mode   Build Link Mode(${MODE_LIST// /,}).
+    -t,--tag          User Custom Tag(${TAG_LIST// /,}).
+    -p,--platform     Platform(${PLAT_LIST// /,}).
+    -a,--arch         Device/Arch.
+    -d,--device       Device/Arch.
+    clean             Clear files generated by the specified Platform and Device/Arch.
+    distclean         Clear all files generated by the current project.
+    clear             Clear all files generated by the all projects, typically delete the 'output_*' dirs.
+    test              Only show command and generate Help Documents in 'src', not to compile.
+    clone             Clone current project, separate it from mixed project.
+    -h,--help         Display this help and exit.
+
+EOF
+    echo_m "    Supported Mode:"
+    echo_h "        - ${MODE_LIST// /|}"
+    echo_m "    Supported Tag:"
+    echo_h "        - ${TAG_LIST// /|}"
+    (
+        echo_m "    Supported Platform(Dev/Arch):"
+        for var in $PLAT_LIST; do
+            PLATFORM=$var
+            get_devlist
+            echo_h "        - $PLATFORM(${DEV_LIST// /|})"
+        done
+        echo_m "    Typical Usage:"
+        echo_h "        - ./$(basename $0) -p=$PLATFORM -d=$(echo $DEV_LIST | awk '{print $1}')"
+        echo_h "        - ./$(basename $0) -p=$PLATFORM -d=$(echo $DEV_LIST | awk '{print $1}') -m=share"
+        echo_h "        - ./$(basename $0) -p=$PLATFORM -d=$(echo $DEV_LIST | awk '{print $1}') -m=share -t=yourtag"
+    )
+    echo_w "    Current Setting:[Mode:$MODE_FLAG, Tag:$CUSTOM_TAG, Platform:$PLATFORM, Device/Arch:$DEV_ARCH]"
+    echo ""
+    if [ $exitval -ne 0 ]; then
+        # Redirect stdout to stderr, effect globally (exec is bash build-in function)
+        exec 1>&2
+    fi
+    if [ ! -z "$errmsg" ]; then
+        echo_e "    ERROR: [$BASH_LINENO $FUNCNAME()] $errmsg." 1>&2
+    fi
+    exit $exitval
+}
+
+parse_args() {
+    JUST_TEST=false
+    PROJ_NAME=$(echo $(basename $0) | sed -rn 's/^build_(.*)\.sh$/\1/p')
+    BUILD_NAME=""
+    while true; do
+        get_devlist
+        test $# -eq 0 && break
+        case "$1" in
+        --platform* | -p*)
+            if [[ "$1" != *=* ]]; then shift; fi # Value is next arg if no `=`
+            PLATFORM="${1#*=}"
+            DEV_ARCH="" # reset
+            ;;
+        --device* | -d* | --arch* | -a*)
+            if [[ "$1" != *=* ]]; then shift; fi # Value is next arg if no `=`
+            DEV_ARCH="${1#*=}"
+            ;;
+        --tag* | -t*)
+            if [[ "$1" != *=* ]]; then shift; fi # Value is next arg if no `=`
+            CUSTOM_TAG="${1#*=}"
+            ;;
+        --share-mode* | -m*)
+            if [[ "$1" != *=* ]]; then shift; fi # Value is next arg if no `=`
+            MODE_FLAG="${1#*=}"
+            ;;
+        --proj_name*)
+            if [[ "$1" != *=* ]]; then shift; fi # Value is next arg if no `=`
+            PROJ_NAME="${1#*=}"
+            ;;
+        --build_name*)
+            if [[ "$1" != *=* ]]; then shift; fi # Value is next arg if no `=`
+            BUILD_NAME="${1#*=}"
+            ;;
+        clean | distclean | clear | test | clone)
+            ACTION="$1"
+            ;;
+        --help | -h)
+            usage 0
+            ;;
+        *)
+            usage 1 "Invalid argument [$1]"
+            ;;
+        esac
+        shift || usage 1 "Parameter value is not set"
+    done
+    check_list "$PLAT_LIST" "$PLATFORM" || usage 1 "Platform '$PLATFORM' is not found"
+    check_list "$DEV_LIST" "$DEV_ARCH" || usage 1 "Device/Arch '$DEV_ARCH' is not found"
+    check_list "$MODE_LIST" "$MODE_FLAG" || usage 1 "share flag of libs setting error"
+    test -n "$CUSTOM_TAG" && {
+        check_list "$TAG_LIST" "$CUSTOM_TAG" || usage 1 "Unrecognized custom tag '$CUSTOM_TAG'"
+    }
+    test -z "$PROJ_NAME" && fatal "packname parse error, please use 'build_xxx.sh' shell name format"
+    test -z "$BUILD_NAME" && {
+        BUILD_NAME="$PROJ_NAME-$PLATFORM-$DEV_ARCH-$MODE_FLAG"
+        test -n "$CUSTOM_TAG" && BUILD_NAME="$BUILD_NAME-$CUSTOM_TAG"
+    }
+    OUTPUT_DIR="$PROJ_ROOT/output_$PROJ_NAME/$BUILD_NAME"
+    CLONE_PATH=$PROJ_ROOT/copy_of_$PROJ_NAME
+    INSTALL_DIR="$OUTPUT_DIR/install"
+    SOURCE_DIR="$OUTPUT_DIR/src"
+    PACK_DIR="$OUTPUT_DIR/pack"
+    return 0
+}
+ARG_LIST=$@
+proj_init() {
+    parse_args $ARG_LIST
+    proj_init_handler
+    rm -f $INSTALL_DIR/$CONFIG_FILE
+    case $ACTION in
+    build) ;;
+    clone)
+        mkdir -p $CLONE_PATH
+        cp $PROJ_ROOT/utils $CLONE_PATH
+        cp $PROJ_ROOT/colors $CLONE_PATH
+        cp $PROJ_ROOT/common $CLONE_PATH
+        cp $PROJ_ROOT/platform $CLONE_PATH
+        cp $0 $CLONE_PATH
+        ;;
+    test)
+        JUST_TEST=true
+        ;;
+    clean)
+        rm -fr $INSTALL_DIR
+        rm -fr $SOURCE_DIR
+        rm -fr $PACK_DIR
+        succ "Run Clean <$BUILD_NAME> Successful"
+        ;;
+    distclean)
+        rm -fr $OUTPUT_DIR
+        succ "Run Distclean Successful"
+        ;;
+    clear)
+        rm -fr $PROJ_ROOT/output_*
+        rm -fr $PROJ_ROOT/copy_of_*
+        succ "Run Clear Successful"
+        ;;
+    *)
+        usage 1 "Invalid build action argument"
+        ;;
+    esac
+}
+# load dependency project to here
+# $1 project build scrit path
+# $2 project build user custom tag
+load_deps_proj() {
+    local script="$1"
+    test ! -f "$script" && fatal "Dependency project does not exist, please confirm."
+    if [ $# -eq 2 ]; then
+        local tag="$2"
+        $script "--proj_name=$PROJ_NAME --build_name=$BUILD_NAME $ARG_LIST --tag=$tag"
+    elif [ $# -eq 1 ]; then
+        $script "--proj_name=$PROJ_NAME --build_name=$BUILD_NAME $ARG_LIST"
+    else
+        fatal "Param error, usage: load_deps_proj [scrit path] <custom tag(Optional)>"
+    fi
+}
+trap 'fatal FATAL: Command runs error in [${BASH_SOURCE}: ${LINENO}].' ERR
+test "${BASH_SOURCE[0]}" -ef "$0" && fatal "Hey, you should source this script, not execute it." # -ef: equal file
+TARBALL_REGEX="\.(zip|rar|7z|tar(\.(gz|xz|bz2|lz|7z))?)"
+# All supported library build mode.
+MODE_LIST="static share both"
+# Set default build mode, but if it is empty, you must specify it manually.
+MODE_FLAG="static"
+CONFIG_FILE="config.txt"
+ACTION="build"
+BUILD_PREFER="autoconf"

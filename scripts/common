@@ -1,0 +1,115 @@
+case "$name" in
+bzip2)
+    $BUILD_CROSS && {
+        config_opts+=(CC=$CC)
+        config_opts+=(AR=$AR)
+        config_opts+=(RANLIB=$RANLIB)
+    }
+    config_opts+=(PREFIX=$INSTALL_DIR)
+    sed -ri "s#^CFLAGS=(.*)#CFLAGS=\1 -fPIC#" Makefile
+    exec_echo "make install ${config_opts[*]} && make -f Makefile-libbz2_so ${config_opts[*]}"
+    $JUST_TEST && return 0
+    # Set library generation rules
+    case "$MODE_FLAG" in
+    static) ;;
+    share) rm $INSTALL_DIR/lib/libbz2.a ;& # fallthrough(Since bash 4.0)
+    both) cp -d $source/libbz2.so* $INSTALL_DIR/lib ;; esac
+    return 0
+    ;;
+libz)
+    case "$BUILD_PREFER" in
+    autoconf)
+        # Set library generation rules
+        case "$MODE_FLAG" in
+        static) config_opts+=(--static) ;;
+        share) ;& # fallthrough(Since bash 4.0)
+        both) ;; esac
+        export CFLAGS="-fPIC $CFLAGS"
+        config_opts+=(--prefix=$INSTALL_DIR)
+        exec_echo ./configure ${config_opts[*]}
+        $JUST_TEST && return 0
+        make && make install
+        case "$MODE_FLAG" in
+        static) ;;
+        share) rm $INSTALL_DIR/lib/libz.a ;;
+        both) ;; esac
+        return 0
+        ;;
+    cmake)
+        $BUILD_CROSS && {
+            config_opts+=(-DCMAKE_SYSTEM_NAME=Linux)
+            config_opts+=(-DCMAKE_C_COMPILER=$CC)
+            config_opts+=(-DCMAKE_CXX_COMPILER=$CXX)
+        }
+        config_opts+=(-DCMAKE_EXE_LINKER_FLAGS=-ldl)
+        config_opts+=(-DCMAKE_BUILD_TYPE=release)
+        config_opts+=(-DCMAKE_INSTALL_PREFIX=\"$INSTALL_DIR\")
+        mkdir _build && cd _build
+        exec_echo cmake ../ ${config_opts[*]}
+        $JUST_TEST && return 0
+        cmake --build .
+        cmake --install . --strip
+        # Set library generation rules
+        case "$MODE_FLAG" in
+        static) rm $INSTALL_DIR/lib/libz.so* ;;
+        share) rm $INSTALL_DIR/lib/libz.a ;;
+        both) ;; esac
+        return 0
+        ;;
+    esac
+    ;;
+openssl)
+    # Generate help documentation
+    test -f "./config" && echo -e "\n./config: \n" >>$config_help &&
+        ./config --help >>$config_help 2>&1 || :
+    test -f "./Configure" && echo -e "\n./Configure: \n" >>$config_help &&
+        ./Configure --help >>$config_help 2>&1 || :
+    # Set library generation rules
+    case "$MODE_FLAG" in
+    static) config_opts+=(no-shared) ;;
+    share) ;& # fallthrough(Since bash 4.0)
+    both) config_opts+=(shared) ;; esac
+
+    # only for test
+    config_opts+=(--debug)
+    config_opts+=(no-autoerrinit)
+    # config_opts+=(enable-crypto-mdebug)
+    # config_opts+=(enable-crypto-mdebug-backtrace)
+    config_opts+=(enable-ssl-trace)
+
+    # config_opts+=(--release)
+    config_opts+=(--with-zlib-include=$INSTALL_DIR/include)
+    config_opts+=(--with-zlib-lib=$INSTALL_DIR/lib)
+    config_opts+=(zlib)
+    config_opts+=(threads)
+    if $BUILD_CROSS; then
+        case "$PLATFORM-$DEV_ARCH" in
+        Dev-Dev01 | Dev-Dev03)
+            config_opts+=(no-async)
+            config_opts+=(linux-armv4)
+            ;;
+        Dev-Dev04)
+            config_opts+=(linux-armv4)
+            ;;
+        Dev-Dev02 | Dev-Dev05)
+            config_opts+=(linux-aarch64)
+            ;;
+        esac
+        unset_export_vars
+        config_opts+=(--prefix=$INSTALL_DIR)
+        config_opts+=(--cross-compile-prefix=$BUILD_PREFIX)
+        exec_echo ./Configure ${config_opts[*]}
+    else
+        config_opts+=(--prefix=$INSTALL_DIR)
+        # Non-cross compiler to use the automatic mode
+        exec_echo ./config ${config_opts[*]}
+    fi
+    $JUST_TEST && return 0
+    make && make install
+    return 0
+    ;;
+*)
+    echo_e "library name not found [$name]."
+    return 1
+    ;;
+esac

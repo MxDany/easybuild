@@ -1,0 +1,23 @@
+{
+    "files.associations": {
+        "utils": "shellscript",
+        "colors": "shellscript",
+        "platform": "shellscript",
+        "common": "shellscript"
+    },
+    "search.exclude": {
+        "output_*/deps": true,
+        "output_*/install": true,
+        "output_*/pack": true,
+        "output_*/src": true,
+        "NDK": true
+    },
+    "files.watcherExclude": {
+        "output_*/deps": true,
+        "output_*/install": true,
+        "output_*/pack": true,
+        "output_*/src": true,
+        "NDK": true
+    },
+    "editor.wordWrap": "on"
+}

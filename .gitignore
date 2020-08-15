@@ -1,0 +1,4 @@
+tarball/*
+!tarball/patch
+output_*
+copy_of_*
