@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Ee
 set +x
-PROJ_ROOT=$(cd $(dirname $0) && pwd)
+PROJ_ROOT=$(pwd)
 . $(dirname ${BASH_SOURCE[0]})/utils
 test $# -ne 2 && {
     cat <<EOF
@@ -19,7 +19,7 @@ sed -r \
     -e "s/@TEMPLATE_NAME@/${TEMPLATE_NAME}/g" \
     -e "s/@TARBALL_VER@/${TARBALL_VER}/g" \
     -e "s/@TARBALL_NAME@/${TARBALL_NAME}/g" \
-    >./build_$TEMPLATE_NAME.sh \
+    >$PROJ_ROOT/build_$TEMPLATE_NAME.sh \
     <<'EOF'
 #!/bin/bash
 set -Ee
@@ -85,7 +85,7 @@ test ! -f "$PROJ_ROOT/tarball/$TARBALL_NAME" && {
     mkdir -p $PROJ_ROOT/tarball
     cp $TARBALL_PATH $PROJ_ROOT/tarball/
 }
-chmod u+x ./build_$TEMPLATE_NAME.sh
+chmod u+x $PROJ_ROOT/build_$TEMPLATE_NAME.sh
 echo -e "\033[0;42;30mDisplay: \033[0m"
-cat ./build_$TEMPLATE_NAME.sh
+cat $PROJ_ROOT/build_$TEMPLATE_NAME.sh
 echo -e "\033[0;42;30mCreated $TEMPLATE_NAME template Successfully.\033[0m"
