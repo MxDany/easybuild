@@ -7,7 +7,7 @@ test $# -ne 2 && {
     cat <<EOF
 Usage:
     Universal multi-platform quick compile tools. run $(basename $0) to quickly create your own compile script.
-    $0 [template name] [tarball Relative Path]
+    $0 [template name] [tarball Path]
 EOF
     exit 1
 }
